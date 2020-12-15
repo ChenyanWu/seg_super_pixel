@@ -65,8 +65,10 @@ class Trainer(object):
 
         # Using cuda
         if args.cuda:
+            # torch.cuda.set_device(0)
+            torch.cuda.set_device(1)
             self.model = torch.nn.DataParallel(self.model, device_ids=self.args.gpu_ids)
-            patch_replication_callback(self.model)
+            # patch_replication_callback(self.model)
             self.model = self.model.cuda()
 
         # Resuming checkpoint
@@ -96,12 +98,12 @@ class Trainer(object):
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            image, target = sample['image'], sample['label']
+            image, target, sp = sample['image'], sample['label'], sample['super_pixel']
             if self.args.cuda:
-                image, target = image.cuda(), target.cuda()
+                image, target, sp = image.cuda(), target.cuda(), sp.cuda()
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
-            output = self.model(image)
+            output = self.model(image, sp)
             loss = self.criterion(output, target)
             loss.backward()
             self.optimizer.step()
@@ -135,11 +137,11 @@ class Trainer(object):
         tbar = tqdm(self.val_loader, desc='\r')
         test_loss = 0.0
         for i, sample in enumerate(tbar):
-            image, target = sample['image'], sample['label']
+            image, target, sp = sample['image'], sample['label'], sample['super_pixel']
             if self.args.cuda:
-                image, target = image.cuda(), target.cuda()
+                image, target, sp = image.cuda(), target.cuda(), sp.cuda()
             with torch.no_grad():
-                output = self.model(image)
+                output = self.model(image, sp)
             loss = self.criterion(output, target)
             test_loss += loss.item()
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
@@ -185,8 +187,8 @@ def main():
     parser.add_argument('--dataset', type=str, default='pascal',
                         choices=['pascal', 'coco', 'cityscapes'],
                         help='dataset name (default: pascal)')
-    parser.add_argument('--use-sbd', action='store_true', default=True,
-                        help='whether to use SBD dataset (default: True)')
+    parser.add_argument('--use-sbd', action='store_true', default=False,
+                        help='whether to use SBD dataset (default: False)')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
     parser.add_argument('--base-size', type=int, default=513,
@@ -257,7 +259,8 @@ def main():
 
     if args.sync_bn is None:
         if args.cuda and len(args.gpu_ids) > 1:
-            args.sync_bn = True
+            args.sync_bn = False
+            # args.sync_bn = True
         else:
             args.sync_bn = False
 
